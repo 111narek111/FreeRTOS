@@ -22,6 +22,9 @@
 
 #define USART_DMA_BUFFER_SIZE   20
 #define SPI_DMA_BUFFER_SIZE     20
+
+#define TIMER_CNT_DEFAULT       0
+#define NUM_OF_BITS_IN_BYTE     8
 //
 uint8_t usart_rx_buffer[USART_DMA_BUFFER_SIZE];
 uint8_t spi_rx_buffer[SPI_DMA_BUFFER_SIZE];
@@ -89,15 +92,21 @@ int main(void) {
 
 	}
 }
-//Task for entrance to low energy mode
+/**
+ * @brief Task that enters low energy mode
+ * @retval None
+ */
 void enterLowPower(void const *argument) {
 	for (;;) {
 		HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
 	}
 }
-//Task for USART message receiving and transmitting via SPI
+/**
+ * @brief Task that receives USART data and transmit to SPI
+ * @retval None
+ */
 void usart_to_spi(void const *argument) {
-	uint8_t spi_tx[20];
+	uint8_t spi_tx[SPI_DMA_BUFFER_SIZE];
 	for (;;) {
 		HAL_USART_Receive_DMA(&husart2, usart_rx_buffer, 1);
 		ulTaskNotifyTake(0, portMAX_DELAY);
@@ -113,9 +122,12 @@ void usart_to_spi(void const *argument) {
 		spi_num_of_bytes = 0;
 	}
 }
-//Task for SPI message receiving and transmitting via USART
+/**
+ * @brief Task that receives SPI data and transmit to USART
+ * @retval None
+ */
 void spi_to_usart(void const *argument) {
-	uint8_t usart_tx[20];
+	uint8_t usart_tx[USART_DMA_BUFFER_SIZE];
 	for (;;) {
 		HAL_SPI_Receive_DMA(&hspi2, spi_rx_buffer, 1);
 		ulTaskNotifyTake(0, portMAX_DELAY);
@@ -131,13 +143,16 @@ void spi_to_usart(void const *argument) {
 		usart_num_of_bytes = 0;
 	}
 }
-//USART data receive via DMA callback
+/**
+ * @brief USART DMA Receive Callback
+ * @retval None
+ */
 void HAL_USART_RxCpltCallback(USART_HandleTypeDef *husart) {
 	HAL_TIM_Base_Stop_IT(&htim2);
-	TIM2->CNT = 0;
+	TIM2->CNT = TIMER_CNT_DEFAULT;
 	HAL_TIM_Base_Start_IT(&htim2);
 	usart_num_of_bytes++;
-	if (usart_num_of_bytes > 9) {
+	if (usart_num_of_bytes > (USART_DMA_BUFFER_SIZE - 1)) {
 		vTaskNotifyGiveFromISR(usartToSpiHandle, 0);
 	} else {
 		HAL_USART_Receive_DMA(&husart2, &usart_rx_buffer[usart_num_of_bytes],
@@ -145,20 +160,26 @@ void HAL_USART_RxCpltCallback(USART_HandleTypeDef *husart) {
 	}
 
 }
-//SPI data receive via DMA callback
+/**
+ * @brief SPI DMA Receive Callback
+ * @retval None
+ */
 void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
 	HAL_TIM_Base_Stop_IT(&htim3);
-	TIM3->CNT = 0;
+	TIM3->CNT = TIMER_CNT_DEFAULT;
 	HAL_TIM_Base_Start_IT(&htim3);
 	spi_num_of_bytes++;
-	if (spi_num_of_bytes == 10) {
+	if (spi_num_of_bytes > (SPI_DMA_BUFFER_SIZE - 1)) {
 		vTaskNotifyGiveFromISR(spiToUsartHandle, 0);
 	} else {
 		HAL_SPI_Receive_DMA(&hspi2, &spi_rx_buffer[spi_num_of_bytes], 1);
 	}
 
 }
-//timers timeout callback
+/**
+ * @brief TIMER overflow Interrupt Callback
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim->Instance == TIM1) {
 		HAL_IncTick();
@@ -375,11 +396,14 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
-//Function to change bit order in byte
+/**
+ * @brief Reversing bit order in byte
+ * @retval reversed bit order data
+ */
 uint8_t reverse_bits(uint8_t number) {
 	uint8_t reversed_number = 0;
-	for (uint8_t i = 0; i < 8; i++) {
-		if (number & (1 << (7 - i))) {
+	for (uint8_t i = 0; i < NUM_OF_BITS_IN_BYTE; i++) {
+		if (number & (1 << ((NUM_OF_BITS_IN_BYTE - 1) - i))) {
 			reversed_number |= (1 << i);
 		}
 	}
