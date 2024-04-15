@@ -98,6 +98,7 @@ int main(void) {
  */
 void enterLowPower(void const *argument) {
 	for (;;) {
+		vTaskSuspendAll();
 		HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
 	}
 }
@@ -110,6 +111,7 @@ void usart_to_spi(void const *argument) {
 	for (;;) {
 		HAL_USART_Receive_DMA(&husart2, usart_rx_buffer, 1);
 		ulTaskNotifyTake(0, portMAX_DELAY);
+		taskENTER_CRITICAL();
 		for (int k = 0; k < spi_num_of_bytes; k++) {
 			spi_tx[k] = reverse_bits(usart_rx_buffer[k]);
 		}
@@ -120,6 +122,7 @@ void usart_to_spi(void const *argument) {
 		}
 		HAL_SPI_Transmit_DMA(&hspi2, spi_tx, spi_num_of_bytes);
 		spi_num_of_bytes = 0;
+		taskEXIT_CRITICAL();
 	}
 }
 /**
@@ -129,8 +132,9 @@ void usart_to_spi(void const *argument) {
 void spi_to_usart(void const *argument) {
 	uint8_t usart_tx[USART_DMA_BUFFER_SIZE];
 	for (;;) {
-		HAL_SPI_Receive_DMA(&hspi2, spi_rx_buffer, 1);
+ 		HAL_SPI_Receive_DMA(&hspi2, spi_rx_buffer, 1);
 		ulTaskNotifyTake(0, portMAX_DELAY);
+		taskENTER_CRITICAL();
 		for (uint8_t k = 0; k < usart_num_of_bytes; k++) {
 			usart_tx[k] = reverse_bits(spi_rx_buffer[k]);
 		}
@@ -141,6 +145,7 @@ void spi_to_usart(void const *argument) {
 		}
 		HAL_USART_Transmit_DMA(&husart2, usart_tx, usart_num_of_bytes);
 		usart_num_of_bytes = 0;
+		taskEXIT_CRITICAL();
 	}
 }
 /**
@@ -154,6 +159,8 @@ void HAL_USART_RxCpltCallback(USART_HandleTypeDef *husart) {
 	usart_num_of_bytes++;
 	if (usart_num_of_bytes > (USART_DMA_BUFFER_SIZE - 1)) {
 		vTaskNotifyGiveFromISR(usartToSpiHandle, 0);
+		xTaskResumeFromISR(usartToSpiHandle);
+		xTaskResumeFromISR(lowPowerHandle);
 	} else {
 		HAL_USART_Receive_DMA(&husart2, &usart_rx_buffer[usart_num_of_bytes],
 				1);
@@ -171,6 +178,8 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef *hspi) {
 	spi_num_of_bytes++;
 	if (spi_num_of_bytes > (SPI_DMA_BUFFER_SIZE - 1)) {
 		vTaskNotifyGiveFromISR(spiToUsartHandle, 0);
+		xTaskResumeFromISR(spiToUsartHandle);
+		xTaskResumeFromISR(lowPowerHandle);
 	} else {
 		HAL_SPI_Receive_DMA(&hspi2, &spi_rx_buffer[spi_num_of_bytes], 1);
 	}
